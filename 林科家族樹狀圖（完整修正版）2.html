@@ -1,0 +1,816 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>林科家族互動式樹狀圖 - 完整版</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: "Microsoft JhengHei", "標楷體", Arial, sans-serif;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            overflow: hidden;
+        }
+        #header {
+            position: fixed; top: 0; left: 0; right: 0;
+            background: rgba(255, 255, 255, 0.95);
+            padding: 15px 20px;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.1);
+            z-index: 1000;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 10px;
+        }
+        #header h1 {
+            font-size: 1.5em;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        #controls { display: flex; gap: 8px; flex-wrap: wrap; }
+        .btn {
+            padding: 8px 15px;
+            border: none;
+            border-radius: 8px;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            cursor: pointer;
+            font-size: 0.85em;
+            transition: all 0.3s;
+            font-weight: 500;
+        }
+        .btn:hover { transform: translateY(-2px); box-shadow: 0 4px 12px rgba(102, 126, 234, 0.4); }
+        .btn:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+        .btn-success { background: linear-gradient(135deg, #11998e 0%, #38ef7d 100%); }
+        .btn-danger { background: linear-gradient(135deg, #eb3349 0%, #f45c43 100%); }
+        .btn-warning { background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); }
+        .btn-info { background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); }
+        #search-box {
+            padding: 8px 12px;
+            border: 2px solid #667eea;
+            border-radius: 8px;
+            font-size: 0.85em;
+            width: 180px;
+        }
+        #tree-container {
+            width: 100vw;
+            height: 100vh;
+            padding-top: 90px;
+            overflow: hidden;
+        }
+        svg { width: 100%; height: 100%; cursor: grab; }
+        svg:active { cursor: grabbing; }
+        .node circle {
+            fill: #fff;
+            stroke: #667eea;
+            stroke-width: 3px;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+        .node:hover circle { 
+            fill: #667eea; 
+            stroke: #764ba2; 
+            stroke-width: 5px;
+            filter: drop-shadow(0 0 8px rgba(102, 126, 234, 0.6));
+        }
+        .node text {
+            font-size: 16px;
+            font-weight: bold;
+            fill: #333;
+            text-anchor: middle;
+            pointer-events: none;
+            writing-mode: vertical-rl;
+            text-orientation: upright;
+            letter-spacing: 3px;
+            font-family: "標楷體", "Microsoft JhengHei", serif;
+        }
+        .node.highlight circle {
+            fill: #ffe082;
+            stroke: #ff9800;
+            stroke-width: 4px;
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.1); }
+        }
+        .node.selected circle { fill: #ff6b6b; stroke: #c92a2a; stroke-width: 5px; }
+        .node.ancestor circle { fill: #ffeb3b; stroke: #ff9800; stroke-width: 4px; }
+        .node.descendant circle { fill: #b3e5fc; stroke: #0288d1; stroke-width: 4px; }
+        .link { fill: none; stroke: #999; stroke-width: 2px; stroke-opacity: 0.6; }
+        .link.highlight { stroke: #ff6b6b; stroke-width: 4px; stroke-opacity: 1; }
+        #info-panel {
+            position: fixed;
+            right: 20px;
+            top: 110px;
+            background: white;
+            padding: 20px;
+            border-radius: 15px;
+            box-shadow: 0 8px 30px rgba(0,0,0,0.2);
+            max-width: 400px;
+            display: none;
+            z-index: 999;
+            max-height: calc(100vh - 130px);
+            overflow-y: auto;
+        }
+        #info-panel.show { display: block; animation: slideIn 0.3s; }
+        @keyframes slideIn {
+            from { transform: translateX(400px); opacity: 0; }
+            to { transform: translateX(0); opacity: 1; }
+        }
+        #info-panel h3 {
+            color: #667eea;
+            margin-bottom: 15px;
+            font-size: 1.3em;
+            border-bottom: 3px solid #764ba2;
+            padding-bottom: 10px;
+        }
+        .info-item {
+            margin: 10px 0;
+            padding: 8px;
+            background: #f8f9fa;
+            border-radius: 6px;
+            border-left: 4px solid #667eea;
+        }
+        .info-label { font-weight: bold; color: #666; margin-right: 8px; }
+        .info-value { color: #333; font-size: 1.05em; }
+        .edit-section {
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 2px solid #e9ecef;
+        }
+        .edit-section h4 { color: #764ba2; margin-bottom: 12px; font-size: 1.1em; }
+        .btn-group { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+        .btn-group .btn { flex: 1; font-size: 0.8em; padding: 6px 10px; min-width: 80px; }
+        .close-btn {
+            position: absolute;
+            top: 10px;
+            right: 10px;
+            background: #ff6b6b;
+            color: white;
+            border: none;
+            border-radius: 50%;
+            width: 28px;
+            height: 28px;
+            cursor: pointer;
+            font-size: 1.1em;
+            transition: all 0.3s;
+        }
+        .close-btn:hover { background: #ff5252; transform: rotate(90deg); }
+        #stats {
+            position: fixed;
+            left: 20px;
+            top: 110px;
+            background: white;
+            padding: 18px;
+            border-radius: 15px;
+            box-shadow: 0 8px 30px rgba(0,0,0,0.2);
+            z-index: 999;
+        }
+        #stats h3 { color: #667eea; margin-bottom: 12px; font-size: 1.2em; }
+        .stat-item {
+            display: flex;
+            justify-content: space-between;
+            margin: 8px 0;
+            padding: 6px 10px;
+            background: #f8f9fa;
+            border-radius: 6px;
+            border-left: 4px solid #667eea;
+            min-width: 180px;
+        }
+        .stat-label { font-weight: bold; color: #666; font-size: 0.9em; }
+        .stat-value { color: #764ba2; font-size: 1.2em; font-weight: bold; }
+        .tooltip {
+            position: absolute;
+            background: rgba(0, 0, 0, 0.9);
+            color: white;
+            padding: 8px 12px;
+            border-radius: 6px;
+            font-size: 13px;
+            pointer-events: none;
+            z-index: 1000;
+            display: none;
+        }
+        .modal {
+            display: none;
+            position: fixed;
+            z-index: 2000;
+            left: 0;
+            top: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0,0,0,0.6);
+        }
+        .modal.show { display: flex; justify-content: center; align-items: center; }
+        .modal-content {
+            background: white;
+            padding: 25px;
+            border-radius: 15px;
+            box-shadow: 0 10px 40px rgba(0,0,0,0.3);
+            max-width: 500px;
+            width: 90%;
+            max-height: 90vh;
+            overflow-y: auto;
+        }
+        .modal-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 18px;
+            padding-bottom: 12px;
+            border-bottom: 2px solid #e9ecef;
+        }
+        .modal-header h2 { color: #667eea; font-size: 1.3em; }
+        .form-group { margin-bottom: 12px; }
+        .form-group label {
+            display: block;
+            margin-bottom: 5px;
+            color: #666;
+            font-weight: bold;
+            font-size: 0.9em;
+        }
+        .form-group input, .form-group select, .form-group textarea {
+            width: 100%;
+            padding: 8px 10px;
+            border: 2px solid #dee2e6;
+            border-radius: 6px;
+            font-size: 0.95em;
+            font-family: inherit;
+        }
+        .form-group textarea {
+            min-height: 200px;
+            font-family: monospace;
+            resize: vertical;
+        }
+        .form-group input:focus, .form-group select:focus, .form-group textarea:focus {
+            outline: none;
+            border-color: #667eea;
+        }
+        .alert {
+            padding: 10px 12px;
+            border-radius: 6px;
+            margin-bottom: 12px;
+            font-size: 0.9em;
+        }
+        .alert-success { background: #d4edda; color: #155724; border-left: 4px solid #28a745; }
+        .alert-danger { background: #f8d7da; color: #721c24; border-left: 4px solid #dc3545; }
+        .alert-info { background: #d1ecf1; color: #0c5460; border-left: 4px solid #17a2b8; }
+        
+        .sort-section {
+            margin-top: 15px;
+            padding-top: 15px;
+            border-top: 2px solid #e9ecef;
+        }
+        .sort-section h4 { color: #764ba2; margin-bottom: 12px; font-size: 1.1em; }
+        .children-list {
+            max-height: 350px;
+            overflow-y: auto;
+            border: 2px solid #e9ecef;
+            border-radius: 8px;
+            padding: 10px;
+            background: #f8f9fa;
+        }
+        .child-item {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            padding: 10px 12px;
+            margin: 6px 0;
+            background: white;
+            border-radius: 6px;
+            border-left: 4px solid #667eea;
+            cursor: move;
+            transition: all 0.3s;
+            user-select: none;
+        }
+        .child-item:hover {
+            background: #e3f2fd;
+            transform: translateX(5px);
+            box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+        }
+        .child-item.dragging {
+            opacity: 0.4;
+            background: #ffeb3b;
+        }
+        .child-name {
+            font-weight: bold;
+            color: #333;
+            flex: 1;
+            font-size: 0.95em;
+        }
+        .child-controls {
+            display: flex;
+            gap: 6px;
+        }
+        .move-btn {
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 4px;
+            padding: 5px 10px;
+            cursor: pointer;
+            font-size: 0.85em;
+            transition: all 0.3s;
+            font-weight: bold;
+            min-width: 32px;
+        }
+        .move-btn:hover:not(:disabled) {
+            background: #764ba2;
+            transform: scale(1.1);
+        }
+        .move-btn:disabled {
+            opacity: 0.3;
+            cursor: not-allowed;
+        }
+        #file-input {
+            display: none;
+        }
+    </style>
+</head>
+<body>
+    <div id="header">
+        <h1>🌳 林科家族樹狀圖 - 完整版 (<span id="header-count">0</span>人)</h1>
+        <div id="controls">
+            <input type="text" id="search-box" placeholder="搜尋族人...">
+            <button class="btn" onclick="resetView()">🔄 重置</button>
+            <button class="btn" onclick="centerOnWenCheng()">🎯 文誠</button>
+            <button class="btn btn-success" onclick="showAddModal()">➕ 新增</button>
+            <button class="btn btn-info" onclick="document.getElementById('file-input').click()">📥 匯入</button>
+            <button class="btn btn-warning" onclick="exportData()">💾 匯出</button>
+            <button class="btn btn-info" onclick="expandAll()">📂 展開</button>
+            <button class="btn" onclick="collapseAll()">📁 收合</button>
+        </div>
+    </div>
+    
+    <input type="file" id="file-input" accept=".json" onchange="importData(event)">
+    
+    <div id="stats">
+        <h3>📊 統計資訊</h3>
+        <div class="stat-item">
+            <span class="stat-label">總人數</span>
+            <span class="stat-value" id="total-count">0</span>
+        </div>
+        <div class="stat-item">
+            <span class="stat-label">世代數</span>
+            <span class="stat-value" id="generation-count">0</span>
+        </div>
+        <div class="stat-item">
+            <span class="stat-label">顯示人數</span>
+            <span class="stat-value" id="visible-count">0</span>
+        </div>
+    </div>
+    
+    <div id="info-panel">
+        <button class="close-btn" onclick="closeInfo()">×</button>
+        <h3 id="info-name"></h3>
+        <div id="info-content"></div>
+        <div class="edit-section">
+            <h4>✏️ 編輯功能</h4>
+            <div class="btn-group">
+                <button class="btn btn-success" onclick="addChild()">➕ 子女</button>
+                <button class="btn btn-warning" onclick="editNode()">✏️ 編輯</button>
+                <button class="btn btn-danger" onclick="deleteNode()">🗑️ 刪除</button>
+            </div>
+        </div>
+        <div class="sort-section" id="sort-section" style="display: none;">
+            <h4>🔄 調整子女順序</h4>
+            <div class="alert alert-info">
+                使用↑↓按鈕或拖曳調整順序
+            </div>
+            <div class="children-list" id="children-list"></div>
+            <div class="btn-group" style="margin-top: 10px;">
+                <button class="btn btn-info" onclick="applySorting()">✅ 套用</button>
+                <button class="btn" onclick="cancelSorting()">❌ 取消</button>
+            </div>
+        </div>
+    </div>
+    
+    <div class="modal" id="edit-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2 id="modal-title">編輯族人</h2>
+                <button class="close-btn" onclick="closeModal()">×</button>
+            </div>
+            <div class="form-group">
+                <label>姓名 *</label>
+                <input type="text" id="edit-name" placeholder="請輸入姓名">
+            </div>
+            <div class="form-group">
+                <label>ID *</label>
+                <input type="text" id="edit-id" placeholder="例如: ID100">
+            </div>
+            <div class="form-group">
+                <label>世代 *</label>
+                <input type="number" id="edit-generation" placeholder="例如: 5">
+            </div>
+            <div class="form-group" id="parent-group" style="display:none;">
+                <label>父親</label>
+                <select id="edit-parent">
+                    <option value="">選擇父親...</option>
+                </select>
+            </div>
+            <div class="btn-group">
+                <button class="btn btn-success" onclick="saveEdit()">💾 儲存</button>
+                <button class="btn" onclick="closeModal()">❌ 取消</button>
+            </div>
+        </div>
+    </div>
+    
+    <div class="modal" id="import-modal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <h2>📥 匯入 JSON 資料</h2>
+                <button class="close-btn" onclick="closeImportModal()">×</button>
+            </div>
+            <div class="alert alert-info">
+                請貼上完整的 JSON 資料，或使用「📥 匯入」按鈕選擇檔案
+            </div>
+            <div class="form-group">
+                <label>JSON 資料</label>
+                <textarea id="import-json" placeholder='{"name": "科", "id": "ID0", "generation": 1, "children": [...]}'></textarea>
+            </div>
+            <div class="btn-group">
+                <button class="btn btn-success" onclick="applyImport()">✅ 確認匯入</button>
+                <button class="btn" onclick="closeImportModal()">❌ 取消</button>
+            </div>
+        </div>
+    </div>
+    
+    <div class="tooltip" id="tooltip"></div>
+    <div id="tree-container"></div>
+    
+    <script src="family-data.js"></script>
+    <script>
+        let currentNode = null, editMode = null, svg, g, tree, root, zoom, initialTransform;
+        let tempChildrenOrder = null;
+        
+        // 如果外部檔案載入失敗，使用內建資料
+        if (typeof familyData === 'undefined') {
+            var familyData = {"name":"科","id":"ID0","generation":1,"highlight":true,"children":[{"name":"士壽","id":"ID1","generation":2,"children":[{"name":"光斷","id":"ID7","generation":3,"children":[{"name":"清標","id":"ID80","generation":4,"children":[{"name":"谷銓","id":"ID81","generation":5,"children":[{"name":"文岳","id":"ID89","generation":6,"children":[{"name":"仁義","id":"ID1002","generation":7},{"name":"久男","id":"ID92","generation":7,"children":[{"name":"明忠","id":"ID1001","generation":8}]}]},{"name":"朝宗","id":"ID82","generation":6,"children":[{"name":"仁華","id":"ID1000","generation":7},{"name":"寬治","id":"ID84","generation":7}]}]}]},{"name":"清河","id":"ID73","generation":4,"children":[{"name":"萬得","id":"ID74","generation":5,"children":[{"name":"茂盛","id":"ID78","generation":6},{"name":"遠","id":"ID1003","generation":6},{"name":"根旺","id":"ID75","generation":6,"children":[{"name":"金雄","id":"ID77","generation":7}]}]}]},{"name":"清淮","id":"ID8","generation":4,"children":[{"name":"好溪","id":"ID9","generation":5,"children":[{"name":"祥欽","id":"ID58","generation":6,"children":[{"name":"義豐","id":"ID1004","generation":7},{"name":"獻章","id":"ID61","generation":7,"children":[{"name":"清水","id":"ID2000","generation":8},{"name":"中書","id":"ID2007","generation":8},{"name":"六鎮","id":"ID2002","generation":8},{"name":"慶順","id":"ID2003","generation":8},{"name":"富治","id":"ID2004","generation":8},{"name":"靜男","id":"ID2005","generation":8},{"name":"正雄","id":"ID2006","generation":8},{"name":"原田","id":"ID62","generation":8,"children":[{"name":"錫勳","id":"ID63","generation":9}]}]},{"name":"炳成","id":"ID60","generation":7}]},{"name":"祥喜","id":"ID10","generation":6,"children":[{"name":"有昆","id":"ID54","generation":7,"children":[{"name":"德良","id":"ID2009","generation":8},{"name":"德信","id":"ID2010","generation":8},{"name":"德仁","id":"ID55","generation":8}]},{"name":"有源","id":"ID50","generation":7,"children":[{"name":"德壽","id":"ID2011","generation":8},{"name":"德祿","id":"ID2012","generation":8},{"name":"添丁","id":"ID51","generation":8}]},{"name":"進傳","id":"ID45","generation":7,"highlight":true,"children":[{"name":"李娘","id":"ID46","generation":8,"highlight":true,"children":[{"name":"義忠","id":"ID47","generation":9,"highlight":true,"children":[{"name":"玉蓉","id":"ID2038","generation":10,"children":[{"name":"志謙","id":"ID2040","generation":11},{"name":"珈卉","id":"ID2041","generation":11}]},{"name":"文誠","id":"ID48","generation":10,"highlight":true,"special":true,"children":[{"name":"暐倫","id":"ID49","generation":11,"highlight":true},{"name":"暐唐","id":"ID179","generation":11,"highlight":true},{"name":"恒佑","id":"ID180","generation":11,"highlight":true}]},{"name":"高仰","id":"ID2039","generation":10}]}]}]},{"name":"有義","id":"ID27","generation":7,"children":[{"name":"連卿","id":"ID28","generation":8},{"name":"進來","id":"ID2013","generation":8,"children":[{"name":"振杰","id":"ID2018","generation":9}]},{"name":"盛正","id":"ID2014","generation":8},{"name":"結田","id":"ID2015","generation":8,"children":[{"name":"添富","id":"ID2019","generation":9}]},{"name":"新建","id":"ID29","generation":8,"children":[{"name":"金德","id":"ID33","generation":9,"children":[{"name":"柏屹","id":"ID300","generation":10}]},{"name":"金桂","id":"ID32","generation":9},{"name":"金宗","id":"ID31","generation":9,"children":[{"name":"琨能","id":"ID307","generation":10}]},{"name":"金寶","id":"ID30","generation":9,"children":[{"name":"浩瑋","id":"ID310","generation":10}]}]},{"name":"顯文","id":"ID2016","generation":8,"children":[{"name":"朝賜","id":"ID2020","generation":9}]},{"name":"連昌","id":"ID2017","generation":8},{"name":"德福","id":"ID34","generation":8,"children":[{"name":"宗松","id":"ID36","generation":9},{"name":"宗興","id":"ID35","generation":9}]}]},{"name":"生明","id":"ID12","generation":7,"children":[{"name":"慶順","id":"ID2021","generation":8},{"name":"慶秀","id":"ID22","generation":8,"children":[{"name":"金富","id":"ID26","generation":9},{"name":"金輝","id":"ID25","generation":9},{"name":"金木","id":"ID24","generation":9},{"name":"金水","id":"ID23","generation":9}]},{"name":"丁財","id":"ID16","generation":8,"children":[{"name":"裕忠","id":"ID20","generation":9,"children":[{"name":"錦均","id":"ID21","generation":10}]},{"name":"金榮","id":"ID17","generation":9,"children":[{"name":"俊男","id":"ID19","generation":10},{"name":"志鴻","id":"ID18","generation":10}]}]},{"name":"振玉","id":"ID14","generation":8,"children":[{"name":"裕賢","id":"ID15","generation":9}]}]}]}]}]}]},{"name":"媽生","id":"ID163","generation":3},{"name":"春良","id":"ID96","generation":3,"children":[{"name":"再生","id":"ID98","generation":4,"children":[{"name":"萬法","id":"ID118","generation":5,"children":[{"name":"添屘","id":"ID160","generation":6,"children":[{"name":"有錫","id":"ID162","generation":7}]},{"name":"振泰","id":"ID157","generation":6,"children":[{"name":"有卿","id":"ID159","generation":7}]},{"name":"水炮","id":"ID152","generation":6,"children":[{"name":"文俊","id":"ID2024","generation":7},{"name":"玄政","id":"ID2023","generation":7},{"name":"保村","id":"ID154","generation":7}]},{"name":"添富","id":"ID147","generation":6,"children":[{"name":"在森","id":"ID2026","generation":7},{"name":"在佑","id":"ID2027","generation":7},{"name":"在南","id":"ID149","generation":7}]},{"name":"振乾","id":"ID142","generation":6,"children":[{"name":"山超","id":"ID2028","generation":7},{"name":"有進","id":"ID2029","generation":7},{"name":"有桂","id":"ID144","generation":7}]},{"name":"利","id":"ID138","generation":6,"children":[{"name":"有信","id":"ID2030","generation":7},{"name":"秋銘","id":"ID140","generation":7}]},{"name":"清輝","id":"ID137","generation":6},{"name":"清泉","id":"ID134","generation":6,"children":[{"name":"有龍","id":"ID136","generation":7}]},{"name":"朝賓","id":"ID129","generation":6,"children":[{"name":"保谷","id":"ID132","generation":7,"children":[{"name":"財毅","id":"ID2031","generation":8}]},{"name":"有鴻","id":"ID131","generation":7}]},{"name":"德河","id":"ID119","generation":6,"children":[{"name":"有田","id":"ID126","generation":7,"children":[{"name":"光輝","id":"ID2032","generation":8},{"name":"根木","id":"ID127","generation":8}]},{"name":"有灶","id":"ID121","generation":7,"children":[{"name":"茂態","id":"ID2033","generation":8},{"name":"慶祿","id":"ID2034","generation":8},{"name":"慶耀","id":"ID2035","generation":8},{"name":"慶豐","id":"ID122","generation":8}]}]}]},{"name":"溪海","id":"ID116","generation":5,"children":[{"name":"利","id":"ID117","generation":6}]},{"name":"接枝","id":"ID111","generation":5,"children":[{"name":"城","id":"ID112","generation":6,"children":[{"name":"志成","id":"ID115","generation":7},{"name":"志賢","id":"ID114","generation":7}]}]},{"name":"坡祥","id":"ID99","generation":5,"children":[{"name":"水來","id":"ID100","generation":6,"children":[{"name":"有田","id":"ID106","generation":7,"children":[{"name":"慶隆","id":"ID107","generation":8}]},{"name":"有財","id":"ID102","generation":7,"children":[{"name":"武勝","id":"ID103","generation":8,"children":[{"name":"文智","id":"ID2036","generation":9},{"name":"文榮","id":"ID104","generation":9}]}]}]},{"name":"水龍","id":"ID110","generation":6}]}]},{"name":"炎","id":"ID97","generation":4}]},{"name":"定鳳","id":"ID2","generation":3,"children":[{"name":"賢","id":"ID5","generation":4,"children":[{"name":"早娘","id":"ID6","generation":5}]},{"name":"金獅","id":"ID4","generation":4},{"name":"勇","id":"ID2037","generation":4}]}]},{"name":"六代","id":"ID164","generation":2,"children":[{"name":"光斷(承)","id":"ID165","generation":3}]}]};
+        }
+        
+        function init() {
+            const width = window.innerWidth, height = window.innerHeight - 90;
+            svg = d3.select("#tree-container").append("svg").attr("width", width).attr("height", height);
+            g = svg.append("g");
+            tree = d3.tree().size([width - 300, height - 250]).separation((a, b) => (a.parent == b.parent ? 1.5 : 2));
+            initialTransform = d3.zoomIdentity.translate(width / 2, 80).scale(0.7);
+            zoom = d3.zoom().scaleExtent([0.1, 3]).on("zoom", (event) => { g.attr("transform", event.transform); });
+            svg.call(zoom);
+            updateTree();
+        }
+        
+        function updateTree() {
+            g.selectAll("*").remove();
+            root = d3.hierarchy(familyData);
+            
+            root.descendants().forEach(d => {
+                d._children = d.children;
+            });
+            
+            tree(root);
+            
+            g.selectAll(".link").data(root.links()).enter().append("path").attr("class", "link")
+                .attr("d", d3.linkVertical().x(d => d.x).y(d => d.y));
+            
+            const nodes = g.selectAll(".node").data(root.descendants()).enter().append("g")
+                .attr("class", d => {
+                    let classes = "node";
+                    if (d.data.highlight) classes += " highlight";
+                    return classes;
+                })
+                .attr("transform", d => `translate(${d.x},${d.y})`)
+                .on("click", nodeClick)
+                .on("mouseover", showTooltip)
+                .on("mouseout", hideTooltip);
+            
+            nodes.append("circle")
+                .attr("r", d => d.data.highlight ? 10 : 8)
+                .style("fill", d => d.data.highlight ? "#ffe082" : "#fff");
+            
+            nodes.append("text")
+                .attr("x", 0)
+                .attr("y", 20)
+                .attr("dy", "0.3em")
+                .text(d => d.data.name);
+            
+            svg.transition().duration(750).call(zoom.transform, initialTransform);
+            updateStats();
+        }
+        
+        function updateStats() {
+            const totalCount = root ? root.descendants().length : 0;
+            const visibleCount = root ? root.descendants().filter(d => !d._children || d.children).length : 0;
+            document.getElementById("total-count").textContent = totalCount;
+            document.getElementById("header-count").textContent = totalCount;
+            document.getElementById("visible-count").textContent = visibleCount;
+            let maxGen = 1;
+            if (root) root.descendants().forEach(d => { if (d.data.generation > maxGen) maxGen = d.data.generation; });
+            document.getElementById("generation-count").textContent = maxGen;
+        }
+        
+        function nodeClick(event, d) {
+            event.stopPropagation();
+            currentNode = d;
+            d3.selectAll(".node").classed("selected ancestor descendant", false);
+            d3.selectAll(".link").classed("highlight", false);
+            d3.selectAll(".node circle").style("fill", node => node.data.highlight ? "#ffe082" : "#fff");
+            d3.select(event.currentTarget).classed("selected", true);
+            let current = d;
+            while (current.parent) {
+                d3.selectAll(".node").filter(node => node.data.id === current.parent.data.id).classed("ancestor", true);
+                d3.selectAll(".link").filter(link => link.target.data.id === current.data.id).classed("highlight", true);
+                current = current.parent;
+            }
+            if (d.children) {
+                d.descendants().forEach(desc => {
+                    if (desc !== d) {
+                        d3.selectAll(".node").filter(node => node.data.id === desc.data.id).classed("descendant", true);
+                        d3.selectAll(".link").filter(link => link.source.data.id === desc.parent.data.id && link.target.data.id === desc.data.id).classed("highlight", true);
+                    }
+                });
+            }
+            showInfo(d);
+        }
+        
+        function showInfo(d) {
+            document.getElementById("info-name").textContent = d.data.name;
+            let content = `<div class="info-item"><span class="info-label">ID:</span><span class="info-value">${d.data.id}</span></div>`;
+            content += `<div class="info-item"><span class="info-label">世代:</span><span class="info-value">第 ${d.data.generation} 世</span></div>`;
+            if (d.parent) content += `<div class="info-item"><span class="info-label">父親:</span><span class="info-value">${d.parent.data.name}</span></div>`;
+            if (d.children) {
+                content += `<div class="info-item"><span class="info-label">子女:</span><span class="info-value">${d.children.map(c => c.data.name).join("、")}</span></div>`;
+                content += `<div class="info-item"><span class="info-label">子女數:</span><span class="info-value">${d.children.length} 人</span></div>`;
+            }
+            const descendants = d.descendants().length - 1;
+            if (descendants > 0) content += `<div class="info-item"><span class="info-label">後代總數:</span><span class="info-value">${descendants} 人</span></div>`;
+            let ancestors = [];
+            let curr = d.parent;
+            while (curr) {
+                ancestors.unshift(curr.data.name);
+                curr = curr.parent;
+            }
+            if (ancestors.length > 0) {
+                content += `<div class="info-item"><span class="info-label">祖先路徑:</span><span class="info-value">${ancestors.join(" → ")}</span></div>`;
+            }
+            document.getElementById("info-content").innerHTML = content;
+            document.getElementById("info-panel").classList.add("show");
+            if (d.data.children && d.data.children.length > 1) {
+                document.getElementById("sort-section").style.display = "block";
+                showChildrenList(d.data.children);
+            } else {
+                document.getElementById("sort-section").style.display = "none";
+            }
+        }
+        
+        function showChildrenList(children) {
+            tempChildrenOrder = [...children];
+            const listEl = document.getElementById("children-list");
+            listEl.innerHTML = "";
+            tempChildrenOrder.forEach((child, index) => {
+                const item = document.createElement("div");
+                item.className = "child-item";
+                item.draggable = true;
+                item.dataset.index = index;
+                item.innerHTML = `<span class="child-name">${index + 1}. ${child.name} (第${child.generation}世)</span><div class="child-controls"><button class="move-btn" onclick="moveChild(${index}, -1)" ${index === 0 ? 'disabled' : ''}>↑</button><button class="move-btn" onclick="moveChild(${index}, 1)" ${index === tempChildrenOrder.length - 1 ? 'disabled' : ''}>↓</button></div>`;
+                item.addEventListener('dragstart', (e) => { e.dataTransfer.effectAllowed = 'move'; e.dataTransfer.setData('text/plain', index); item.classList.add('dragging'); });
+                item.addEventListener('dragend', () => { item.classList.remove('dragging'); });
+                item.addEventListener('dragover', (e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; });
+                item.addEventListener('drop', (e) => { e.preventDefault(); const fromIndex = parseInt(e.dataTransfer.getData('text/plain')); const toIndex = parseInt(item.dataset.index); if (fromIndex !== toIndex) { const [movedItem] = tempChildrenOrder.splice(fromIndex, 1); tempChildrenOrder.splice(toIndex, 0, movedItem); showChildrenList(tempChildrenOrder); } });
+                listEl.appendChild(item);
+            });
+        }
+        
+        function moveChild(index, direction) {
+            const newIndex = index + direction;
+            if (newIndex < 0 || newIndex >= tempChildrenOrder.length) return;
+            [tempChildrenOrder[index], tempChildrenOrder[newIndex]] = [tempChildrenOrder[newIndex], tempChildrenOrder[index]];
+            showChildrenList(tempChildrenOrder);
+        }
+        
+        function applySorting() {
+            if (!currentNode || !tempChildrenOrder) return;
+            currentNode.data.children = tempChildrenOrder;
+            tempChildrenOrder = null;
+            alert("✅ 順序已更新！");
+            updateTree();
+            closeInfo();
+        }
+        
+        function cancelSorting() {
+            tempChildrenOrder = null;
+            document.getElementById("sort-section").style.display = "none";
+        }
+        
+        function closeInfo() {
+            document.getElementById("info-panel").classList.remove("show");
+            currentNode = null;
+            tempChildrenOrder = null;
+            d3.selectAll(".node").classed("selected ancestor descendant", false);
+            d3.selectAll(".link").classed("highlight", false);
+            d3.selectAll(".node circle").style("fill", node => node.data.highlight ? "#ffe082" : "#fff");
+        }
+        
+        function showTooltip(event, d) {
+            const tooltip = document.getElementById("tooltip");
+            tooltip.style.display = "block";
+            tooltip.style.left = (event.pageX + 10) + "px";
+            tooltip.style.top = (event.pageY - 30) + "px";
+            tooltip.textContent = `${d.data.name} (第${d.data.generation}世)`;
+        }
+        
+        function hideTooltip() { document.getElementById("tooltip").style.display = "none"; }
+        
+        function resetView() { svg.transition().duration(750).call(zoom.transform, initialTransform); closeInfo(); }
+        
+        function centerOnWenCheng() {
+            const node = root.descendants().find(d => d.data.id === "ID48");
+            if (node) {
+                const width = window.innerWidth, height = window.innerHeight - 90, scale = 1.2;
+                const x = width / 2 - node.x * scale, y = height / 2 - node.y * scale;
+                svg.transition().duration(750).call(zoom.transform, d3.zoomIdentity.translate(x, y).scale(scale));
+                setTimeout(() => {
+                    const el = d3.selectAll(".node").filter(d => d.data.id === "ID48").node();
+                    if (el) { el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true, view: window })); }
+                }, 800);
+            } else { alert("找不到文誠節點"); }
+        }
+        
+        function expandAll() { root.descendants().forEach(d => { if (d._children) { d.children = d._children; } }); updateTree(); }
+        
+        function collapseAll() { root.descendants().forEach(d => { if (d.children) { d._children = d.children; d.children = null; } }); if (root._children) { root.children = root._children; } updateTree(); }
+        
+        function showAddModal() {
+            editMode = 'add';
+            document.getElementById("modal-title").textContent = "新增族人";
+            document.getElementById("edit-name").value = "";
+            document.getElementById("edit-id").value = "";
+            document.getElementById("edit-generation").value = "";
+            document.getElementById("parent-group").style.display = "block";
+            const select = document.getElementById("edit-parent");
+            select.innerHTML = '<option value="">選擇父親...</option>';
+            root.descendants().forEach(d => {
+                const option = document.createElement('option');
+                option.value = d.data.id;
+                option.textContent = `${d.data.name} (第${d.data.generation}世)`;
+                select.appendChild(option);
+            });
+            if (currentNode) {
+                select.value = currentNode.data.id;
+                document.getElementById("edit-generation").value = currentNode.data.generation + 1;
+            }
+            document.getElementById("edit-modal").classList.add("show");
+        }
+        
+        function addChild() {
+            if (!currentNode) return;
+            editMode = 'add';
+            document.getElementById("modal-title").textContent = "新增子女";
+            document.getElementById("edit-name").value = "";
+            document.getElementById("edit-id").value = "";
+            document.getElementById("edit-generation").value = currentNode.data.generation + 1;
+            document.getElementById("parent-group").style.display = "none";
+            document.getElementById("edit-modal").classList.add("show");
+        }
+        
+        function editNode() {
+            if (!currentNode) return;
+            editMode = 'edit';
+            document.getElementById("modal-title").textContent = "編輯族人";
+            document.getElementById("edit-name").value = currentNode.data.name;
+            document.getElementById("edit-id").value = currentNode.data.id;
+            document.getElementById("edit-generation").value = currentNode.data.generation;
+            document.getElementById("parent-group").style.display = "none";
+            document.getElementById("edit-modal").classList.add("show");
+        }
+        
+        function closeModal() { document.getElementById("edit-modal").classList.remove("show"); }
+        
+        function saveEdit() {
+            const name = document.getElementById("edit-name").value.trim();
+            const id = document.getElementById("edit-id").value.trim();
+            const generation = parseInt(document.getElementById("edit-generation").value);
+            if (!name || !id || !generation) { alert("請填寫所有必填欄位！"); return; }
+            if (editMode === 'add') {
+                const parentId = document.getElementById("edit-parent").value || (currentNode ? currentNode.data.id : null);
+                if (!parentId) { alert("請選擇父親！"); return; }
+                function findNode(node, targetId) {
+                    if (node.id === targetId) return node;
+                    if (node.children) {
+                        for (let child of node.children) {
+                            const found = findNode(child, targetId);
+                            if (found) return found;
+                        }
+                    }
+                    return null;
+                }
+                const parentNode = findNode(familyData, parentId);
+                if (parentNode) {
+                    if (!parentNode.children) parentNode.children = [];
+                    parentNode.children.push({ name: name, id: id, generation: generation });
+                    alert("✅ 新增成功！");
+                }
+            } else if (editMode === 'edit') {
+                currentNode.data.name = name;
+                currentNode.data.id = id;
+                currentNode.data.generation = generation;
+                alert("✅ 修改成功！");
+            }
+            closeModal();
+            updateTree();
+            closeInfo();
+        }
+        
+        function deleteNode() {
+            if (!currentNode || currentNode.data.id === "ID0") { alert("無法刪除根節點！"); return; }
+            if (!confirm(`確定要刪除「${currentNode.data.name}」及其所有後代嗎？`)) return;
+            function removeNode(node, targetId) {
+                if (node.children) {
+                    node.children = node.children.filter(child => {
+                        if (child.id === targetId) return false;
+                        removeNode(child, targetId);
+                        return true;
+                    });
+                }
+            }
+            removeNode(familyData, currentNode.data.id);
+            alert("✅ 刪除成功！");
+            closeInfo();
+            updateTree();
+        }
+        
+        document.getElementById("search-box").addEventListener("input", function(e) {
+            const term = e.target.value.toLowerCase();
+            if (term === "") {
+                d3.selectAll(".node").style("opacity", 1);
+                d3.selectAll(".link").style("opacity", 0.6);
+            } else {
+                d3.selectAll(".node").style("opacity", d => {
+                    const match = d.data.name.toLowerCase().includes(term) || d.data.id.toLowerCase().includes(term);
+                    return match ? 1 : 0.2;
+                });
+                d3.selectAll(".link").style("opacity", 0.2);
+            }
+        });
+        
+        function exportData() {
+            const blob = new Blob([JSON.stringify(familyData, null, 2)], {type: 'application/json'});
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+            link.href = url;
+            link.download = `林科家族_${new Date().toISOString().split('T')[0]}.json`;
+            link.click();
+            URL.revokeObjectURL(url);
+            alert("✅ JSON資料匯出成功！");
+        }
+        
+        function importData(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    const jsonData = JSON.parse(e.target.result);
+                    document.getElementById("import-json").value = JSON.stringify(jsonData, null, 2);
+                    document.getElementById("import-modal").classList.add("show");
+                } catch (error) {
+                    alert("❌ JSON 格式錯誤：" + error.message);
+                }
+            };
+            reader.readAsText(file);
+            event.target.value = '';
+        }
+        
+        function applyImport() {
+            const jsonText = document.getElementById("import-json").value.trim();
+            if (!jsonText) { alert("請輸入 JSON 資料！"); return; }
+            try {
+                const newData = JSON.parse(jsonText);
+                if (!newData.name || !newData.id || !newData.generation) {
+                    alert("❌ JSON 格式錯誤：缺少必要欄位 (name, id, generation)");
+                    return;
+                }
+                if (!confirm("確定要匯入新資料嗎？目前資料將被覆蓋！")) return;
+                familyData = newData;
+                closeImportModal();
+                updateTree();
+                closeInfo();
+                alert("✅ 資料匯入成功！");
+            } catch (error) {
+                alert("❌ JSON 解析錯誤：" + error.message);
+            }
+        }
+        
+        function closeImportModal() {
+            document.getElementById("import-modal").classList.remove("show");
+            document.getElementById("import-json").value = "";
+        }
+        
+        window.addEventListener('load', init);
+        console.log("🌳 林科家族樹狀圖載入完成！");
+    </script>
+</body>
+</html>
